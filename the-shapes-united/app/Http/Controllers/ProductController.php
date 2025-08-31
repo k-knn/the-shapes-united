@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Product;
 use App\Models\ProductPivotPriceTags;
 use App\Models\PriceTags;
+use Illuminate\Support\Facades\DB;
 
 class ProductController extends Controller
 {
@@ -142,84 +143,77 @@ class ProductController extends Controller
         return response()->json(['message' => 'Product created successfully', 'product' => $product], 201);
     }
 
-    // Store all the product details associated
-public function storeProductDetails(Request $request)
-{
-    $validated = $request->validate([
-        'name' => 'required|string|max:255',
-        'description' => 'nullable|string',
-        'price' => 'required|numeric',
-        'category_id' => 'required|exists:categories,category_id',
-        'images' => 'nullable|array',
-        'images.*' => 'string', // URL or path
-        'colors' => 'nullable|array',
-        'colors.*' => 'string',
-        'sizes' => 'nullable|array',
-        'sizes.*' => 'string',
-        'rating' => 'nullable|numeric|min:0|max:5',
-    ]);
-
-    DB::beginTransaction();
-
-    try {
-        // Create the product
-        $product = Product::create([
-            'name' => $validated['name'],
-            'description' => $validated['description'] ?? null,
-            'price' => $validated['price'],
-            'category_id' => $validated['category_id'],
+   // Store a new product with related details
+    public function storeProductDetails(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric',
+            'category_id' => 'required|exists:categories,category_id',
+            'images' => 'nullable|array',
+            'images.*' => 'string',
+            'colors' => 'nullable|array',
+            'colors.*' => 'string',
+            'sizes' => 'nullable|array',
+            'sizes.*' => 'string',
+            'rating' => 'nullable|numeric|min:0|max:5',
         ]);
 
-        // Attach images
-        if (!empty($validated['images'])) {
-            foreach ($validated['images'] as $url) {
-                $product->images()->create(['image_url' => $url]);
-            }
-        }
+        DB::beginTransaction();
 
-        // Attach colors
-        if (!empty($validated['colors'])) {
-            $colorIds = [];
-            foreach ($validated['colors'] as $colorName) {
-                $color = Color::firstOrCreate(['name' => $colorName]);
-                $colorIds[] = $color->id;
-            }
-            $product->colors()->attach($colorIds);
-        }
-
-        // Attach sizes
-        if (!empty($validated['sizes'])) {
-            $sizeIds = [];
-            foreach ($validated['sizes'] as $sizeName) {
-                $size = Size::firstOrCreate(['name' => $sizeName]);
-                $sizeIds[] = $size->id;
-            }
-            $product->sizes()->attach($sizeIds);
-        }
-
-        // Optional: Add initial rating
-        if (!empty($validated['rating'])) {
-            $product->reviews()->create([
-                'rating' => $validated['rating'],
-                'review_text' => 'Initial rating entry.',
-                'user_id' => auth()->id() ?? null,
+        try {
+            $product = Product::create([
+                'name' => $validated['name'],
+                'description' => $validated['description'] ?? null,
+                'price' => $validated['price'],
+                'category_id' => $validated['category_id'],
             ]);
+
+            if (!empty($validated['images'])) {
+                foreach ($validated['images'] as $url) {
+                    $product->images()->create(['image_url' => $url]);
+                }
+            }
+
+            if (!empty($validated['colors'])) {
+                $colorIds = [];
+                foreach ($validated['colors'] as $colorName) {
+                    $color = Color::firstOrCreate(['name' => $colorName]);
+                    $colorIds[] = $color->id;
+                }
+                $product->colors()->attach($colorIds);
+            }
+
+            if (!empty($validated['sizes'])) {
+                $sizeIds = [];
+                foreach ($validated['sizes'] as $sizeName) {
+                    $size = Size::firstOrCreate(['name' => $sizeName]);
+                    $sizeIds[] = $size->id;
+                }
+                $product->sizes()->attach($sizeIds);
+            }
+
+            if (!empty($validated['rating'])) {
+                $product->reviews()->create([
+                    'rating' => $validated['rating'],
+                    'review_text' => 'Initial rating entry.',
+                    'user_id' => auth()->id() ?? null,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Product created successfully.',
+                'product' => $product->load(['images', 'colors', 'sizes', 'reviews']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Error creating product: ' . $e->getMessage());
+            return response()->json(['error' => 'Product creation failed.'], 500);
         }
-
-        DB::commit();
-
-        return response()->json([
-            'message' => 'Product created successfully.',
-            'product' => $product->load(['images', 'colors', 'sizes', 'reviews']),
-        ]);
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error('Error creating product: ' . $e->getMessage());
-        return response()->json(['error' => 'Product creation failed.'], 500);
     }
-}
-
-
 
     // Update existing product
     public function update(Request $request, $productId)
